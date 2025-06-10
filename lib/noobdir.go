@@ -2,10 +2,10 @@ package lib
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
-	"syscall"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
@@ -25,10 +25,18 @@ func (n *NoobDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	log.Printf("ReadDirAll: %s", n.relativePath)
 	entries := []fuse.Dirent{}
 
-	res, err := os.ReadDir(filepath.Join(nfsRoot, n.relativePath))
+	dirPath := filepath.Join(nfsRoot, n.relativePath)
+	res, err := os.ReadDir(dirPath)
 	if err != nil {
-		return nil, err
+		if os.IsNotExist(err) {
+			return nil, fuse.ENOENT
+		}
+		if os.IsPermission(err) {
+			return nil, fuse.EPERM
+		}
+		return nil, fmt.Errorf("failed to read directory %s: %w", dirPath, err)
 	}
+
 	for _, entry := range res {
 		if entry.IsDir() {
 			entries = append(entries, fuse.Dirent{
@@ -50,9 +58,16 @@ func (n *NoobDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 func (n *NoobDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 	fullPath := filepath.Join(nfsRoot, n.relativePath, name)
 	log.Printf("Lookup: %s", fullPath)
+
 	info, err := os.Stat(fullPath)
 	if err != nil {
-		return nil, syscall.ENOENT
+		if os.IsNotExist(err) {
+			return nil, fuse.ENOENT
+		}
+		if os.IsPermission(err) {
+			return nil, fuse.EPERM
+		}
+		return nil, fmt.Errorf("failed to stat path %s: %w", fullPath, err)
 	}
 
 	if info.IsDir() {
